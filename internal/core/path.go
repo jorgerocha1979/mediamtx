@@ -16,6 +16,7 @@ import (
 	"github.com/bluenviron/mediamtx/internal/hooks"
 	"github.com/bluenviron/mediamtx/internal/logger"
 	"github.com/bluenviron/mediamtx/internal/recorder"
+	"github.com/bluenviron/mediamtx/internal/staticsources"
 	"github.com/bluenviron/mediamtx/internal/stream"
 )
 
@@ -30,6 +31,7 @@ type pathParent interface {
 	pathReady(*path)
 	pathNotReady(*path)
 	closePath(*path)
+	AddReader(req defs.PathAddReaderReq) (defs.Path, *stream.Stream, error)
 }
 
 type pathOnDemandState int
@@ -166,19 +168,20 @@ func (pa *path) run() {
 	if pa.conf.Source == "redirect" {
 		pa.source = &sourceRedirect{}
 	} else if pa.conf.HasStaticSource() {
-		pa.source = &staticSourceHandler{
-			conf:           pa.conf,
-			logLevel:       pa.logLevel,
-			readTimeout:    pa.readTimeout,
-			writeTimeout:   pa.writeTimeout,
-			writeQueueSize: pa.writeQueueSize,
-			matches:        pa.matches,
-			parent:         pa,
+		pa.source = &staticsources.Handler{
+			Conf:           pa.conf,
+			LogLevel:       pa.logLevel,
+			ReadTimeout:    pa.readTimeout,
+			WriteTimeout:   pa.writeTimeout,
+			WriteQueueSize: pa.writeQueueSize,
+			Matches:        pa.matches,
+			PathManager:    pa.parent,
+			Parent:         pa,
 		}
-		pa.source.(*staticSourceHandler).initialize()
+		pa.source.(*staticsources.Handler).Initialize()
 
 		if !pa.conf.SourceOnDemand {
-			pa.source.(*staticSourceHandler).start(false, "")
+			pa.source.(*staticsources.Handler).Start(false, "")
 		}
 	}
 
@@ -216,9 +219,9 @@ func (pa *path) run() {
 	}
 
 	if pa.source != nil {
-		if source, ok := pa.source.(*staticSourceHandler); ok {
+		if source, ok := pa.source.(*staticsources.Handler); ok {
 			if !pa.conf.SourceOnDemand || pa.onDemandStaticSourceState != pathOnDemandStateInitial {
-				source.close("path is closing")
+				source.Close("path is closing")
 			}
 		} else if source, ok := pa.source.(defs.Publisher); ok {
 			source.Close()
@@ -361,7 +364,7 @@ func (pa *path) doReloadConf(newConf *conf.Path) {
 	pa.confMutex.Unlock()
 
 	if pa.conf.HasStaticSource() {
-		pa.source.(*staticSourceHandler).reloadConf(newConf)
+		pa.source.(*staticsources.Handler).ReloadConf(newConf)
 	}
 
 	if pa.conf.Record {
@@ -396,7 +399,7 @@ func (pa *path) doSourceStaticSetNotReady(req defs.PathSourceStaticSetNotReadyRe
 	pa.setNotReady()
 
 	// send response before calling onDemandStaticSourceStop()
-	// in order to avoid a deadlock due to staticSourceHandler.stop()
+	// in order to avoid a deadlock due to staticsources.Handler.stop()
 	close(req.Res)
 
 	if pa.conf.HasOnDemandStaticSource() && pa.onDemandStaticSourceState != pathOnDemandStateInitial {
@@ -440,7 +443,7 @@ func (pa *path) doDescribe(req defs.PathDescribeReq) {
 		return
 	}
 
-	req.Res <- defs.PathDescribeRes{Err: defs.PathNoOnePublishingError{PathName: pa.name}}
+	req.Res <- defs.PathDescribeRes{Err: defs.PathNoStreamAvailableError{PathName: pa.name}}
 }
 
 func (pa *path) doRemovePublisher(req defs.PathRemovePublisherReq) {
@@ -531,7 +534,7 @@ func (pa *path) doAddReader(req defs.PathAddReaderReq) {
 		return
 	}
 
-	req.Res <- defs.PathAddReaderRes{Err: defs.PathNoOnePublishingError{PathName: pa.name}}
+	req.Res <- defs.PathAddReaderRes{Err: defs.PathNoStreamAvailableError{PathName: pa.name}}
 }
 
 func (pa *path) doRemoveReader(req defs.PathRemoveReaderReq) {
@@ -577,7 +580,7 @@ func (pa *path) doAPIPathsGet(req pathAPIPathsGetReq) {
 				if pa.stream == nil {
 					return []string{}
 				}
-				return defs.MediasToCodecs(pa.stream.Desc().Medias)
+				return defs.MediasToCodecs(pa.stream.Desc.Medias)
 			}(),
 			BytesReceived: func() uint64 {
 				if pa.stream == nil {
@@ -634,7 +637,7 @@ func (pa *path) shouldClose() bool {
 }
 
 func (pa *path) onDemandStaticSourceStart(query string) {
-	pa.source.(*staticSourceHandler).start(true, query)
+	pa.source.(*staticsources.Handler).Start(true, query)
 
 	pa.onDemandStaticSourceReadyTimer.Stop()
 	pa.onDemandStaticSourceReadyTimer = time.NewTimer(time.Duration(pa.conf.SourceOnDemandStartTimeout))
@@ -657,7 +660,7 @@ func (pa *path) onDemandStaticSourceStop(reason string) {
 
 	pa.onDemandStaticSourceState = pathOnDemandStateInitial
 
-	pa.source.(*staticSourceHandler).stop(reason)
+	pa.source.(*staticsources.Handler).Stop(reason)
 }
 
 func (pa *path) onDemandPublisherStart(query string) {
@@ -695,14 +698,14 @@ func (pa *path) onDemandPublisherStop(reason string) {
 }
 
 func (pa *path) setReady(desc *description.Session, allocateEncoder bool) error {
-	var err error
-	pa.stream, err = stream.New(
-		pa.writeQueueSize,
-		pa.udpMaxPayloadSize,
-		desc,
-		allocateEncoder,
-		logger.NewLimitedLogger(pa.source),
-	)
+	pa.stream = &stream.Stream{
+		WriteQueueSize:     pa.writeQueueSize,
+		UDPMaxPayloadSize:  pa.udpMaxPayloadSize,
+		Desc:               desc,
+		GenerateRTPPackets: allocateEncoder,
+		Parent:             pa.source,
+	}
+	err := pa.stream.Initialize()
 	if err != nil {
 		return err
 	}
@@ -860,9 +863,9 @@ func (pa *path) reloadConf(newConf *conf.Path) {
 	}
 }
 
-// staticSourceHandlerSetReady is called by staticSourceHandler.
-func (pa *path) staticSourceHandlerSetReady(
-	staticSourceHandlerCtx context.Context, req defs.PathSourceStaticSetReadyReq,
+// StaticSourceHandlerSetReady is called by staticsources.Handler.
+func (pa *path) StaticSourceHandlerSetReady(
+	ctx context.Context, req defs.PathSourceStaticSetReadyReq,
 ) {
 	select {
 	case pa.chStaticSourceSetReady <- req:
@@ -873,14 +876,14 @@ func (pa *path) staticSourceHandlerSetReady(
 	// this avoids:
 	// - invalid requests sent after the source has been terminated
 	// - deadlocks caused by <-done inside stop()
-	case <-staticSourceHandlerCtx.Done():
+	case <-ctx.Done():
 		req.Res <- defs.PathSourceStaticSetReadyRes{Err: fmt.Errorf("terminated")}
 	}
 }
 
-// staticSourceHandlerSetNotReady is called by staticSourceHandler.
-func (pa *path) staticSourceHandlerSetNotReady(
-	staticSourceHandlerCtx context.Context, req defs.PathSourceStaticSetNotReadyReq,
+// StaticSourceHandlerSetNotReady is called by staticsources.Handler.
+func (pa *path) StaticSourceHandlerSetNotReady(
+	ctx context.Context, req defs.PathSourceStaticSetNotReadyReq,
 ) {
 	select {
 	case pa.chStaticSourceSetNotReady <- req:
@@ -891,7 +894,7 @@ func (pa *path) staticSourceHandlerSetNotReady(
 	// this avoids:
 	// - invalid requests sent after the source has been terminated
 	// - deadlocks caused by <-done inside stop()
-	case <-staticSourceHandlerCtx.Done():
+	case <-ctx.Done():
 		close(req.Res)
 	}
 }

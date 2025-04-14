@@ -121,8 +121,12 @@ func (s *Server) Initialize() error {
 	}
 
 	if s.IsTLS {
-		var err error
-		s.loader, err = certloader.New(s.ServerCert, s.ServerKey, s.Parent)
+		s.loader = &certloader.CertLoader{
+			CertPath: s.ServerCert,
+			KeyPath:  s.ServerKey,
+			Parent:   s.Parent,
+		}
+		err := s.loader.Initialize()
 		if err != nil {
 			return err
 		}
@@ -302,10 +306,10 @@ func (s *Server) OnPause(ctx *gortsplib.ServerHandlerOnPauseCtx) (*base.Response
 	return se.onPause(ctx)
 }
 
-// OnPacketLost implements gortsplib.ServerHandlerOnDecodeError.
-func (s *Server) OnPacketLost(ctx *gortsplib.ServerHandlerOnPacketLostCtx) {
+// OnPacketsLost implements gortsplib.ServerHandlerOnPacketsLost.
+func (s *Server) OnPacketsLost(ctx *gortsplib.ServerHandlerOnPacketsLostCtx) {
 	se := ctx.Session.UserData().(*session)
-	se.onPacketLost(ctx)
+	se.onPacketsLost(ctx)
 }
 
 // OnDecodeError implements gortsplib.ServerHandlerOnDecodeError.

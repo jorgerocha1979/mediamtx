@@ -4,8 +4,8 @@
   <br>
   <br>
 
-  [![Test](https://github.com/bluenviron/mediamtx/workflows/code_test/badge.svg)](https://github.com/bluenviron/mediamtx/actions?query=workflow:code_test)
-  [![Lint](https://github.com/bluenviron/mediamtx/workflows/code_lint/badge.svg)](https://github.com/bluenviron/mediamtx/actions?query=workflow:code_lint)
+  [![Test](https://github.com/bluenviron/mediamtx/actions/workflows/code_test.yml/badge.svg)](https://github.com/bluenviron/mediamtx/actions/workflows/code_test.yml)
+  [![Lint](https://github.com/bluenviron/mediamtx/actions/workflows/code_lint.yml/badge.svg)](https://github.com/bluenviron/mediamtx/actions/workflows/code_lint.yml)
   [![CodeCov](https://codecov.io/gh/bluenviron/mediamtx/branch/main/graph/badge.svg)](https://app.codecov.io/gh/bluenviron/mediamtx/tree/main)
   [![Release](https://img.shields.io/github/v/release/bluenviron/mediamtx)](https://github.com/bluenviron/mediamtx/releases)
   [![Docker Hub](https://img.shields.io/badge/docker-bluenviron/mediamtx-blue)](https://hub.docker.com/r/bluenviron/mediamtx)
@@ -88,6 +88,8 @@ _rtsp-simple-server_ has been rebranded as _MediaMTX_. The reason is pretty obvi
   * [By device](#by-device)
     * [Generic webcam](#generic-webcam)
     * [Raspberry Pi Cameras](#raspberry-pi-cameras)
+      * [Adding audio](#adding-audio)
+      * [Secondary stream](#secondary-stream)
   * [By protocol](#by-protocol)
     * [SRT clients](#srt-clients)
     * [SRT cameras and servers](#srt-cameras-and-servers)
@@ -125,6 +127,7 @@ _rtsp-simple-server_ has been rebranded as _MediaMTX_. The reason is pretty obvi
   * [Forward streams to other servers](#forward-streams-to-other-servers)
   * [Proxy requests to other servers](#proxy-requests-to-other-servers)
   * [On-demand publishing](#on-demand-publishing)
+  * [Route absolute timestamps](#route-absolute-timestamps)
   * [Expose the server in a subfolder](#expose-the-server-in-a-subfolder)
   * [Start on boot](#start-on-boot)
     * [Linux](#linux)
@@ -273,7 +276,7 @@ The RTSP protocol supports multiple underlying transport protocols, each with it
 ffmpeg -re -stream_loop -1 -i file.ts -c copy -f rtsp -rtsp_transport tcp rtsp://localhost:8554/mystream
 ```
 
-The resulting stream will be available in path `/mystream`.
+The resulting stream is available in path `/mystream`.
 
 #### GStreamer
 
@@ -300,7 +303,7 @@ gst-launch-1.0 filesrc location=file.mp4 ! qtdemux name=d \
 d.video_0 ! rtspclientsink protocols=tcp name=s location=rtsp://localhost:8554/mystream
 ```
 
-The resulting stream will be available in path `/mystream`.
+The resulting stream is available in path `/mystream`.
 
 GStreamer can also publish a stream by using the [WebRTC / WHIP protocol](#webrtc). Make sure that GStreamer version is at least 1.22, and that if the codec is H264, the profile is baseline. Use the `whipclientsink` element:
 
@@ -349,7 +352,7 @@ Latest versions of OBS Studio can publish to the server with the [WebRTC / WHIP 
 
 Save the configuration and click `Start streaming`.
 
-The resulting stream will be available in path `/mystream`.
+The resulting stream is available in path `/mystream`.
 
 #### OpenCV
 
@@ -424,7 +427,7 @@ while True:
     start = now
 ```
 
-The resulting stream will be available in path `/mystream`.
+The resulting stream is available in path `/mystream`.
 
 #### Unity
 
@@ -535,7 +538,7 @@ public class WebRTCPublisher : MonoBehaviour
 
 In the _Hierarchy_ window, find or create a scene and a camera, then add the `WebRTCPublisher.cs` script as component of the camera, by dragging it inside the _Inspector_ window. then Press the _Play_ button at the top of the page.
 
-The resulting stream will be available in path `/unity`.
+The resulting stream is available in path `/unity`.
 
 #### Web browsers
 
@@ -545,7 +548,7 @@ Web browsers can publish a stream to the server by using the [WebRTC protocol](#
 http://localhost:8889/mystream/publish
 ```
 
-The resulting stream will be available in path `/mystream`.
+The resulting stream is available in path `/mystream`.
 
 This web page can be embedded into another web page by using an iframe:
 
@@ -553,7 +556,7 @@ This web page can be embedded into another web page by using an iframe:
 <iframe src="http://mediamtx-ip:8889/mystream/publish" scrolling="no"></iframe>
 ```
 
-For more advanced setups, you can create and serve a custom web page by starting from the [source code of the WebRTC publish page](internal/servers/webrtc/publish_index.html).
+For more advanced setups, you can create and serve a custom web page by starting from the [source code of the WebRTC publish page](internal/servers/webrtc/publish_index.html). In particular, there's a ready-to-use, standalone JavaScript class for publishing streams with WebRTC, available in [publisher.js](internal/servers/webrtc/publisher.js).
 
 ### By device
 
@@ -583,7 +586,7 @@ Where `USB2.0 HD UVC WebCam` is the name of a webcam, that can be obtained with:
 ffmpeg -list_devices true -f dshow -i dummy
 ```
 
-The resulting stream will be available in path `/cam`.
+The resulting stream is available in path `/cam`.
 
 #### Raspberry Pi Cameras
 
@@ -610,7 +613,7 @@ If you want to run the standard (non-Docker) version of the server:
        source: rpiCamera
    ```
 
-The resulting stream will be available in path `/cam`.
+The resulting stream is available in path `/cam`.
 
 If you want to run the server inside Docker, you need to use the `latest-rpi` image and launch the container with some additional flags:
 
@@ -624,7 +627,7 @@ docker run --rm -it \
 bluenviron/mediamtx:latest-rpi
 ```
 
-Be aware that the server is not compatible with cameras that requires a custom `libcamera` (like some ArduCam products), since it comes with a bundled `libcamera`. If you want to use a custom one, you can [compile from source](#custom-libcamera).
+Be aware that precompiled binaries and Docker images are not compatible with cameras that require a custom `libcamera` (like some ArduCam products), since they come with a bundled `libcamera`. If you want to use a custom one, you can [compile from source](#custom-libcamera).
 
 Camera settings can be changed by using the `rpiCamera*` parameters:
 
@@ -637,6 +640,8 @@ paths:
 ```
 
 All available parameters are listed in the [sample configuration file](/mediamtx.yml).
+
+##### Adding audio
 
 In order to add audio from a USB microfone, install GStreamer and alsa-utils:
 
@@ -677,7 +682,42 @@ paths:
     runOnInitRestart: yes
 ```
 
-The resulting stream will be available in path `/cam_with_audio`.
+The resulting stream is available in path `/cam_with_audio`.
+
+##### Secondary stream
+
+It is possible to enable a secondary stream from the same camera, with a different resolution, FPS and codec. Configuration is the same of a primary stream, with `rpiCameraSecondary` set to `true` and parameters adjusted accordingly:
+
+```yml
+paths:
+  # primary stream
+  rpi:
+    source: rpiCamera
+    # Width of frames.
+    rpiCameraWidth: 1920
+    # Height of frames.
+    rpiCameraHeight: 1080
+    # FPS.
+    rpiCameraFPS: 30
+
+  # secondary stream
+  secondary:
+    source: rpiCamera
+    # This is a secondary stream.
+    rpiCameraSecondary: true
+    # Width of frames.
+    rpiCameraWidth: 640
+    # Height of frames.
+    rpiCameraHeight: 480
+    # FPS.
+    rpiCameraFPS: 10
+    # Codec. in case of secondary streams, it defaults to M-JPEG.
+    rpiCameraCodec: auto
+    # JPEG quality.
+    rpiCameraJPEGQuality: 60
+```
+
+The secondary stream is available in path `/secondary`.
 
 ### By protocol
 
@@ -689,7 +729,7 @@ SRT is a protocol that allows to publish and read live data stream, providing en
 srt://localhost:8890?streamid=publish:mystream&pkt_size=1316
 ```
 
-Replace `mystream` with any name you want. The resulting stream will be available in path `/mystream`.
+Replace `mystream` with any name you want. The resulting stream is available in path `/mystream`.
 
 If credentials are enabled, append username and password to `streamid`:
 
@@ -722,7 +762,7 @@ WebRTC is an API that makes use of a set of protocols and methods to connect two
 http://localhost:8889/mystream/publish
 ```
 
-The resulting stream will be available in path `/mystream`.
+The resulting stream is available in path `/mystream`.
 
 WHIP is a WebRTC extensions that allows to publish streams by using a URL, without passing through a web page. This allows to use WebRTC as a general purpose streaming protocol. If you are using a software that supports WHIP (for instance, latest versions of OBS Studio), you can publish a stream to the server by using this URL:
 
@@ -755,7 +795,7 @@ RTSP is a protocol that allows to publish and read streams. It supports differen
 rtsp://localhost:8554/mystream
 ```
 
-The resulting stream will be available in path `/mystream`.
+The resulting stream is available in path `/mystream`.
 
 Known clients that can publish with RTSP are [FFmpeg](#ffmpeg), [GStreamer](#gstreamer), [OBS Studio](#obs-studio).
 
@@ -770,7 +810,7 @@ paths:
     source: rtsp://original-url
 ```
 
-The resulting stream will be available in path `/proxied`.
+The resulting stream is available in path `/proxied`.
 
 The server supports any number of source streams (count is just limited by available hardware resources) it's enough to add additional entries to the paths section:
 
@@ -791,7 +831,7 @@ RTMP is a protocol that allows to read and publish streams, but is less versatil
 rtmp://localhost/mystream
 ```
 
-The resulting stream will be available in path `/mystream`.
+The resulting stream is available in path `/mystream`.
 
 In case authentication is enabled, credentials can be passed to the server by using the `user` and `pass` query parameters:
 
@@ -812,7 +852,7 @@ paths:
     source: rtmp://original-url
 ```
 
-The resulting stream will be available in path `/proxied`.
+The resulting stream is available in path `/proxied`.
 
 #### HLS cameras and servers
 
@@ -825,7 +865,7 @@ paths:
     source: http://original-url/stream/index.m3u8
 ```
 
-The resulting stream will be available in path `/proxied`.
+The resulting stream is available in path `/proxied`.
 
 #### UDP/MPEG-TS
 
@@ -853,7 +893,7 @@ paths:
     source: udp://238.0.0.1:1234
 ```
 
-The resulting stream will be available in path `/mypath`.
+The resulting stream is available in path `/mypath`.
 
 Known clients that can publish with WebRTC and WHIP are [FFmpeg](#ffmpeg) and [GStreamer](#gstreamer).
 
@@ -1104,7 +1144,7 @@ This web page can be embedded into another web page by using an iframe:
 <iframe src="http://mediamtx-ip:8889/mystream" scrolling="no"></iframe>
 ```
 
-For more advanced setups, you can create and serve a custom web page by starting from the [source code of the WebRTC read page](internal/servers/webrtc/read_index.html).
+For more advanced setups, you can create and serve a custom web page by starting from the [source code of the WebRTC read page](internal/servers/webrtc/read_index.html). In particular, there's a ready-to-use, standalone JavaScript class for reading streams with WebRTC, available in [reader.js](internal/servers/webrtc/reader.js).
 
 Web browsers can also read a stream with the [HLS protocol](#hls). Latency is higher but there are less problems related to connectivity between server and clients, furthermore the server load can be balanced by using a common HTTP CDN (like CloudFront or Cloudflare), and this allows to handle readers in the order of millions. Visit the web page:
 
@@ -1560,7 +1600,8 @@ pathDefaults:
   record: yes
   # Path of recording segments.
   # Extension is added automatically.
-  # Available variables are %path (path name), %Y %m %d %H %M %S %f %s (time in strftime format)
+  # Available variables are %path (path name), %Y %m %d (year, month, day),
+  # %H %M %S (hours, minutes, seconds), %f (milliseconds), %s (unix epoch).
   recordPath: ./recordings/%path/%Y-%m-%d_%H-%M-%S-%f
 ```
 
@@ -1620,12 +1661,12 @@ The server will return a list of timespans in JSON format:
 [
   {
     "start": "2006-01-02T15:04:05Z07:00",
-    "duration": "60.0",
+    "duration": 60.0,
     "url": "http://localhost:9996/get?path=[mypath]&start=2006-01-02T15%3A04%3A05Z07%3A00&duration=60.0"
   },
   {
     "start": "2006-01-02T15:07:05Z07:00",
-    "duration": "32.33",
+    "duration": 32.33,
     "url": "http://localhost:9996/get?path=[mypath]&start=2006-01-02T15%3A07%3A05Z07%3A00&duration=32.33"
   }
 ]
@@ -1704,6 +1745,27 @@ paths:
 ```
 
 The command inserted into `runOnDemand` will start only when a client requests the path `ondemand`, therefore the file will start streaming only when requested.
+
+### Route absolute timestamps
+
+Some streaming protocols allow to route absolute timestamps, associated with each frame, that are useful for synchronizing several video or data streams together. In particular, _MediaMTX_ supports receiving absolute timestamps with the following protocols and devices:
+
+* HLS (through the `EXT-X-PROGRAM-DATE-TIME` tag in playlists)
+* RTSP (through RTCP reports, when `useAbsoluteTimestamp` is `true` in settings)
+* WebRTC (through RTCP reports, when `useAbsoluteTimestamp` is `true` in settings)
+* Raspberry Pi Camera
+
+and supports sending absolute timestamps with the following protocols:
+
+* HLS (through the `EXT-X-PROGRAM-DATE-TIME` tag in playlists)
+* RTSP (through RTCP reports)
+* WebRTC (through RTCP reports)
+
+A library that can read absolute timestamps with HLS is [gohlslib](https://github.com/bluenviron/gohlslib)
+
+A library that can read absolute timestamps with RTSP is [gortsplib](https://github.com/bluenviron/gortsplib)
+
+A browser can read read absolute timestamps with WebRTC if it exposes the [estimatedPlayoutTimestamp](https://www.w3.org/TR/webrtc-stats/#dom-rtcinboundrtpstreamstats-estimatedplayouttimestamp) statistic.
 
 ### Expose the server in a subfolder
 
@@ -2498,10 +2560,11 @@ The command will produce tarballs in folder `binaries/`.
 
 ## License
 
-All the code in this repository is released under the [MIT License](LICENSE). Compiled binaries make use of some third-party dependencies:
+All the code in this repository is released under the [MIT License](LICENSE). Compiled binaries include some third-party dependencies:
 
-* hls.js, released under the [Apache License 2.0](https://github.com/video-dev/hls.js/blob/master/LICENSE)
-* all the dependencies listed into the [go.mod file](go.mod), which are all released under either the MIT license, BSD-3-Clause license or Apache License 2.0
+* all the Golang-based dependencies listed into the [go.mod file](go.mod), which are all released under either the MIT license, BSD 3-Clause license or Apache License 2.0.
+* hls.js, released under the [Apache License 2.0](https://github.com/video-dev/hls.js/blob/master/LICENSE).
+* mediamtx-rpicamera, which is released under the same license of _MediaMTX_ but includes some [third-party dependencies](https://github.com/bluenviron/mediamtx-rpicamera?tab=readme-ov-file#license).
 
 ## Specifications
 
